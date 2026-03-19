@@ -14,3 +14,4 @@ shap
 jupyter
 requests
 torch
+altair<5
