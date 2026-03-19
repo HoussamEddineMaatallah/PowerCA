@@ -35,8 +35,35 @@ import shap
 data_path = "data/processed/eco2mix_cleaned.csv"
 weights_path = "data/results/transformer_weights.msgpack"
 
-if not os.path.exists(data_path) or not os.path.exists(weights_path):
-    st.error("Données ou poids (transformer_weights.msgpack) absents. Assurez-vous d'avoir téléchargé les données de Colab.")
+@st.cache_data
+def download_and_prepare_data():
+    if not os.path.exists(weights_path):
+        return False, "Les poids du modèle (transformer_weights.msgpack) sont introuvables."
+    if not os.path.exists(data_path):
+        import requests
+        os.makedirs("data/raw", exist_ok=True)
+        os.makedirs("data/processed", exist_ok=True)
+        url = 'https://odre.opendatasoft.com/api/explore/v2.1/catalog/datasets/eco2mix-national-cons-def/exports/csv?lang=fr&timezone=Europe%2FParis&use_labels=true&delimiter=%3B'
+        response = requests.get(url, stream=True)
+        with open('data/raw/eco2mix_raw.csv', 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                f.write(chunk)
+        df = pd.read_csv('data/raw/eco2mix_raw.csv', sep=';', low_memory=False)
+        df.rename(columns={'Date et Heure': 'datetime', 'Consommation (MW)': 'consumption'}, inplace=True)
+        df.dropna(subset=['datetime'], inplace=True)
+        df['datetime'] = pd.to_datetime(df['datetime'], utc=True)
+        df.sort_values('datetime', inplace=True)
+        df.set_index('datetime', inplace=True)
+        df = df[~df.index.duplicated(keep='first')]
+        df = df.resample('30min').asfreq()
+        df['consumption'] = df['consumption'].interpolate(method='time')
+        df.reset_index(inplace=True)
+        df.to_csv(data_path, index=False)
+    return True, ""
+
+success, msg = download_and_prepare_data()
+if not success:
+    st.error(msg)
     st.stop()
 
 @st.cache_data
